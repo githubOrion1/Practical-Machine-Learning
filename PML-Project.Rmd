@@ -1,0 +1,149 @@
+---
+title: 'Course Project: Practical Machine Learning'
+author: "Ryan R. Squires"
+date: "25 April 2016"
+output: html_document
+---
+
+#Synopsis
+
+We use a dataset from prior academic work on human activity monitoring in order to create an algorithm that will determine the method in which a subject is performing an exercise activity.  
+
+#Data Cleaning and Pre-Processing
+
+Code to download, clean and create our datasets is shown below.  We create both a training and a test set from the provided file pml-training.csv.  We download the provided test-submission set for later use.  We use the dplyr package to select the appropriate variables from the original data.  We elected not to use timestamp variables or those that seem to identify the particular experimental subject as those would seem to limit the generality of our model.  We also eliminate those variables that were mostly blank or NA.
+
+```{r, cache=TRUE, warning=FALSE, message=FALSE}
+
+library(curl)
+
+download.file(url="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", 
+		destfile="train.csv", method="curl")
+
+# The test-submission file is below.
+
+download.file(url="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", 
+		destfile="test.csv", method="curl")
+
+ham <- read.csv("train.csv")
+
+library(plyr)
+
+library(dplyr)
+
+library(caret)
+
+ham <- select(ham,-c(1:7,12:36,50:59,69:83,87:101,103:112,125:139,141:150))
+
+ham <- ham[complete.cases(ham),]
+
+inTrain <- createDataPartition(y=ham$classe, p= 0.75, list=FALSE)
+
+train_set <- ham[inTrain,]
+
+test_set <- ham[-inTrain,]
+
+```
+
+```{r echo=FALSE}
+
+rm(ham)
+
+rm(inTrain)
+
+```
+
+# Experimental Design
+
+The five-level 'classe' (A-E) variable the training data identifies the manner in which the experimental subject performed the expercize.  We would like to predict this outcome based on sensor measurements.  An obvious means to do this is a machine learning algorithm, however, there are many different machine learning algorithms with varying degrees of flexibility and interpretability. In his tutorial, "Predictive Modeling with R and the caret Package (2013), Kuhn suggests that one start with a more flexible model structure to identify the upper limits of prediction and then try a less flexible, more interpretable model.  If the difference in performance is acceptable and interpretability is important, one can then elect to use the less flexible, more interpretable model.  Applying this approach, we first attempt to predict classe by creating a random forest of classification trees to predict the outcome.  After estimating the performance of this method, we then attempt to predict classe using a single classification tree.
+
+#Basic Data Exploration
+
+Here we take a brief look at the contents of the training set. Our training set contains `r nrow(train_set)` observations.  Each observation has `r length(train_set)` variables.  A table of number of observations for each level of the classe variable follows.
+
+```{r}
+
+table(train_set$classe)
+
+```
+
+#Random Forest Modeling
+
+We first train a random forest to predict the classe variable within our training set.  We use a 10-fold cross validation scheme, selecting the model based on cross-validated accuracy.  We then estimate our out-of sample accuracy using the hold-out test set (this is not the submission test set).
+
+```{r cache=TRUE, warning=FALSE, message=FALSE}
+fitControl <- trainControl(method = "cv", number = 10)
+
+set.seed(1802)
+
+rf_fit <- train(classe~., data=train_set, trControl=fitControl, 
+                   method="rf",verbose=FALSE)
+
+# In sample
+# 1
+
+confusionMatrix(predict(rf_fit),train_set$classe)
+
+# out of sample
+# 0.9932708
+
+pred_classe <- predict(rf_fit, newdata=test_set)
+```
+
+```{r echo=FALSE}
+# Clean-up and make room
+rm(pred_classe)
+```
+
+# Classification Tree Modeling
+
+Having obtained excellent results using the random forest algorithm, we would like to see if we can obtain acceptable results from a more interpretable model.  The base classifier in the random forest is a classification tree.  We now grow a single tree and evaluate its performance as above.  
+
+```{r, cache=TRUE, warning=FALSE, message=FALSE}
+set.seed(1802)
+
+rpart_fit <- train(classe~., data=train_set, trControl=fitControl, 
+                   method="rpart")
+
+# In sample
+
+confusionMatrix(predict(rpart_fit),train_set$classe)
+
+# out of sample
+
+pred_classe <- predict(rpart_fit, newdata=test_set)
+
+confusionMatrix(pred_classe, test_set$classe)
+```
+
+We can visualize the classification tree by plotting.
+
+```{r echo=FALSE}
+plot(rpart_fit$finalModel, uniform=TRUE, compress=TRUE, lty=3, branch=0.7)
+
+text(rpart_fit$finalModel, all=TRUE, digits=7, cex=0.4, xpd=TRUE)
+```
+
+Figure:  Classification Tree
+
+Our classification tree is outperformed by our random forest by a large margin.  Although the single tree is probably better than random guess.  Interstingly, no leaves of our tree give the result 'D'.
+
+# Submission Test Set
+
+The submission test set demands predictive accuracy only, so it only makes sense to use our random forest model to predict the classe variable for each of these instances.
+
+```{r cache=TRUE, warning=FALSE, message=FALSE}
+ham_test <- read.csv("test.csv")
+
+ham_test <- select(ham_test,-c(1:7,12:36,50:59,69:83,87:101,103:112,125:139,141:150))
+
+ham_test <- ham_test[complete.cases(ham_test),]
+
+predict(rf_fit, newdata=ham_test)
+```
+
+#Conclusions
+
+The power of aggregated classifiers is quite clear in this experiment.  The accuracy achieved by the random forest is remarkable.  The far lower predictive accuracy achieved by the classification tree demonstrates the trade-off for interpretability.  We initially used boosting for our flexible model, but found random forest to be more accurate.  While it would be possible to consider other flexible models such as boosting or support vector machines, the results achieved using the random forest would make this an entirely academic exercise.
+
+The utility of the caret package is also evident.  It was very easy to interact with different R packages through the uniform caret interface.
