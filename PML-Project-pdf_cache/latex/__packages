@@ -1,0 +1,9 @@
+base
+curl
+plyr
+dplyr
+lattice
+ggplot2
+caret
+randomForest
+rpart
